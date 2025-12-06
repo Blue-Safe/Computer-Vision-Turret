@@ -1,43 +1,24 @@
-import pigpio, time, os
+import adafruit_servokit as sk
+import time
 
-pi = pigpio.pi()
-y = 3
-x = 5
-pi.set_mode(y, pigpio.OUTPUT)
-pi.set_mode(x, pigpio.OUTPUT)
+kit = sk.ServoKit(channels=16)
 
-def setPWM(pin,time):
-    pi.set_servo_pulsewidth(pin,time)
+kit.servo[0].set_pulse_width_range(1000,2000)
+kit.servo[1].set_pulse_width_range(1000,2000)
+
 
 while True:
-    os.system("clear")
-    pin = input("Axis: ")
-    if pin.lower() == "x":
-        pin = 3
-    elif pin.lower() == "y":
-        pin = 5
-    else:
-        print("Invalid; 'x' or 'y' ")
-        time.sleep(2)
-        continue
-    print()
-    angle = int(input("Angle: "))
-    if angle == "0":
-        angle = 1000
-    elif angle == "90":
-        angle = 1500
-    elif angle == "180":
-        angle = 2000
-    else:
-        print("Invalid; '0','90','180'")
-        time.sleep(2)
-        continue
+    kit.servo[0].angle = 90
+    kit.servo[1].angle = 90
 
-    setPWM(pin,angle)
     time.sleep(1)
-    print()
-    input("Hit enter to leave")
 
+    kit.servo[0].angle = 0
+    kit.servo[1].angle = 0
 
+    time.sleep(1)
 
+    kit.servo[0].angle = 180
+    kit.servo[1].angle = 180
 
+    time.sleep(1)
