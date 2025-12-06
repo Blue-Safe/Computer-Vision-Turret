@@ -1,9 +1,10 @@
 import pigpio, time, os
 
 pi = pigpio.pi()
-PIN_PAN = 18
-
-pi.set_mode(PIN_PAN, pigpio.OUTPUT)
+y = 3
+x = 5
+pi.set_mode(y, pigpio.OUTPUT)
+pi.set_mode(x, pigpio.OUTPUT)
 
 def setPWM(pin,time):
     pi.set_servo_pulsewidth(pin,time)
