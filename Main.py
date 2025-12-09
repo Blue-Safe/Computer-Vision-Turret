@@ -32,6 +32,7 @@ def main():
         MIN_AREA = 800
 
         # Meaningfull objects
+
         MO = []
 
         for object in contours:
