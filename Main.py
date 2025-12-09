@@ -1,6 +1,11 @@
 import cv2
 import numpy as np
 from ServoTesting import *
+import time
+from enum import Enum, auto
+
+
+
 
 def dataProcess(ret,frame):        
 
@@ -59,34 +64,36 @@ def simpleCam(cap):
         if key == ord('q'):
             break
 
-        
-def calibration(cap):
+
+def calibration(cap): 
     calibrated = False
     setPos(90,90)
     laser.on()
     time.sleep(2)
+    averageList = []
     while True:
         ret, frame = cap.read() 
         if not ret: 
             print("Failed to grab frame")
             break
+        
 
         display,targetCenter = dataProcess(ret,frame)
 
-        print(targetCenter)
-
-
-
-
-
-
         
+        if len(averageList) < 50:
+            if targetCenter != None:
+                averageList.append(targetCenter)
+        else:
+            for i in range(0,len(averageList)):
+                homex += averageList[i][0]
+                homey += averageList[i][1]
 
-        cv2.imshow('Webcam',display)
+            homex/len(averageList)
+            homey/len(averageList)
 
-        key = cv2.waitKey(1) & 0xFF
-        if key == ord('q'):
-            break
+            return homex,homey
+
 
         
 
@@ -100,7 +107,7 @@ def main():
     print("Camera opened")
 
 
-    calibration(cap)
+    print(calibration(cap))
     
     
 
