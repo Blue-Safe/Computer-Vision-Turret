@@ -8,7 +8,7 @@ kit = sk.ServoKit(channels=16)
 kit.servo[0].set_pulse_width_range(1000,2000)
 kit.servo[1].set_pulse_width_range(1000,2000)
 
-laser = OutputDevice(17,active_high=False,initial_value=False)
+laser = OutputDevice(17,active_high=True,initial_value=False)
 
 def setPos(x,y):
     kit.servo[0].angle = x
@@ -16,7 +16,7 @@ def setPos(x,y):
 
 def basic():
     while True:
-        laser.on()
+        laser.off()
 
         kit.servo[0].angle = 90
         kit.servo[1].angle = 90
@@ -31,7 +31,7 @@ def basic():
         kit.servo[0].angle = 180
         kit.servo[1].angle = 180
 
-        laser.off()
+        
 
         time.sleep(2)
 
@@ -59,40 +59,24 @@ def leftRight():
     kit.servo[0].angle = 90
 
 
-def circle(r):
-    # for theta in range(0,361):
+def circle(center, radius_deg, step_deg, delay):
+    laser.on()
+    cx, cy = center
+    while True:
+        for theta in range(0, 360, step_deg):
+            rad = math.radians(theta)
+            x = cx + radius_deg * math.cos(rad)
+            y = cy + radius_deg * math.sin(rad)
 
-    #     x = r * math.cos(theta)
-    #     y = r * math.sin(theta)
+            # clamp to safe servo range
 
-    #     kit.servo[0].angle = x
-    #     kit.servo[1].angle = y
-    #     time.sleep(.5)
+            x = max(0, min(180, x))
+            y = max(0, min(180, y))
 
- 
-    setPos(90,90)
-    time.sleep(2)
-    setPos(0,90)
-    time.sleep(2)
-    setPos(45,135)
-    time.sleep(2)
-    setPos(90,180)
-    time.sleep(2)
-    setPos(135,135)
-    time.sleep(2)
-    setPos(180,90)
-    time.sleep(2)
-    setPos(135,45)
-    time.sleep(2)
-    setPos(90,0)
-    time.sleep(2)
-    setPos(45,45)
-    time.sleep(2)
-    setPos(0,90)
-    time.sleep(2)
-    setPos(90,90)
-    time.sleep(2)
-    
-laser.on()
-circle(1)
-laser.off()
+            setPos(x, y)
+            time.sleep(delay)
+    laser.off()
+
+
+
+circle((90,90),40,2,.02)
