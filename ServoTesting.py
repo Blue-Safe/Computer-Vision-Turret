@@ -58,12 +58,12 @@ def leftRight():
     time.sleep(3)
     kit.servo[0].angle = 90
 
-
-def circle(center, radius_deg, step_deg, delay):
-    laser.on()
+def drawCircle(center, radius_deg, step_deg, delay):
+    
     cx, cy = center
     while True:
         for theta in range(0, 360, step_deg):
+            laser.on()
             rad = math.radians(theta)
             x = cx + radius_deg * math.cos(rad)
             y = cy + radius_deg * math.sin(rad)
@@ -74,9 +74,5 @@ def circle(center, radius_deg, step_deg, delay):
             y = max(0, min(180, y))
 
             setPos(x, y)
+            laser.off()
             time.sleep(delay)
-    laser.off()
-
-
-
-circle((90,90),40,2,.02)

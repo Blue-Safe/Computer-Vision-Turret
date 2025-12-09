@@ -1,6 +1,6 @@
 import cv2
 import numpy as np
-
+from ServoTesting import *
 
 def dataProcess(ret,frame):        
 
@@ -14,7 +14,7 @@ def dataProcess(ret,frame):
 
     contours, _ = cv2.findContours(mask,cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-    MIN_AREA = 800
+    MIN_AREA = 500
 
     # Meaningfull objects
 
@@ -42,19 +42,9 @@ def dataProcess(ret,frame):
         cv2.rectangle(frame, (x,y), (x+w, y+h), (0,0,255),2)
         cv2.circle(frame, (cx,cy), 5, (0,255,0), -1)
 
-    return (visualize,targetCenter)
+    return (frame,targetCenter)
 
-
-
-def main():
-    cap = cv2.VideoCapture(0)
-
-    if not cap.isOpened():
-        print("Could not open Camera")
-        return
-    
-    print("Camera opened")
-
+def simpleCam(cap):
     while True:
         ret, frame = cap.read()
         if not ret:
@@ -65,11 +55,54 @@ def main():
 
         cv2.imshow('Webcam',display)
 
-        if cv2.waitKey(1) * 0xFF == ord('q'):
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('q'):
             break
-    
 
         
+def calibration(cap):
+    calibrated = False
+    setPos(90,90)
+    laser.on()
+    time.sleep(2)
+    while True:
+        ret, frame = cap.read() 
+        if not ret: 
+            print("Failed to grab frame")
+            break
+
+        display,targetCenter = dataProcess(ret,frame)
+
+        print(targetCenter)
+
+
+
+
+
+
+        
+
+        cv2.imshow('Webcam',display)
+
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('q'):
+            break
+
+        
+
+def main():
+    cap = cv2.VideoCapture(0)
+
+    if not cap.isOpened():
+        print("Could not open Camera")
+        return
+    
+    print("Camera opened")
+
+
+    calibration(cap)
+    
+    
 
     cap.release()
     cv2.destroyAllWindows
