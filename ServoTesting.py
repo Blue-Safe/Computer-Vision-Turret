@@ -76,3 +76,6 @@ def drawCircle(center, radius_deg, step_deg, delay):
             setPos(x, y)
             laser.off()
             time.sleep(delay)
+
+drawCircle((90,90),45,2,.02)
+print("done")
