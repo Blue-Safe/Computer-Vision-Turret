@@ -22,7 +22,7 @@ def dataProcess(ret,frame,state):
 
         contours, _ = cv2.findContours(mask,cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-        MIN_AREA = 500
+        MIN_AREA = 500  
     elif state == 1:
         
         blur = cv2.GaussingBlur(frame,(15,15), 0)
