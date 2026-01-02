@@ -1,6 +1,6 @@
 import cv2
 import numpy as np
-from ServoTesting import *
+from ServoTesting import sendData
 import time
 from enum import Enum, auto
 
