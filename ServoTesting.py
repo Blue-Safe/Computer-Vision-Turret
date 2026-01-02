@@ -31,4 +31,3 @@ def drawCircle(center, radius_deg, step_deg, delay):
             sendData(x,y,1)
             time.sleep(delay)
 
-drawCircle((90,90),45,2,.02)
