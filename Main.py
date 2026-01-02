@@ -1,13 +1,13 @@
 import cv2
 import numpy as np
-from ServoTesting import *
+# from ServoTesting import *
 import time
-from enum import Enum, auto
 
 
 
 
-def dataProcess(ret,frame,state):        
+
+def dataProcess(ret,frame,state=0):        
 
 
     if state == 0:
@@ -23,13 +23,33 @@ def dataProcess(ret,frame,state):
         contours, _ = cv2.findContours(mask,cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
         MIN_AREA = 500
+
     elif state == 1:
-        
-        blur = cv2.GaussingBlur(frame,(15,15), 0)
+        while True:
+            hsv = cv2.cvtColor(frame,cv2.COLOR_BGR2HSV)
 
-        # Maybe check is outline works better for laser
+            lower = np.array([0,255,255])
+            upper = np.array([10,255,255])
 
-        thresh = cv2.adaptiveThreshold(blur,255,cv2.ADAPTIVE_THRESH_MEAN_C,cv2.THRESH_BINARY_INV,31,5)
+            mask = cv2.inRange(hsv, lower, upper)
+
+            res = cv2.bitwise_and(frame, frame, mask=mask)
+
+            cv2.imshow('frame',frame)
+            
+            cv2.imshow('mask',mask)
+
+
+            cv2.imshow('res',res)
+
+
+            k = cv2.waitKey(5) & 0xFF
+
+            if k == 27:
+
+                break
+
+    
 
     # Meaningfull objects
 
@@ -73,7 +93,6 @@ def simpleCam(cap):
         key = cv2.waitKey(1) & 0xFF
         if key == ord('q'):
             break
-
 
 def calibration(cap,x,y): 
     
@@ -133,8 +152,24 @@ def tracker(cap,home):
         key = cv2.waitKey(1) & 0xFF
         if key == ord('q'):
             break
-        
 
+
+def laser(cap):
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            print("failed to grab frame")
+            break
+        
+        display,targetCenter = dataProcess(ret,frame,1)
+
+        cv2.imshow('Webcam',display)
+
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('q'):
+            break
+
+        
 def main():
     debug = True
     cap = cv2.VideoCapture(0)
@@ -146,11 +181,7 @@ def main():
     print("Camera opened")
 
 
-    
-    
-    
-
-    
+    laser(cap)
     
 
     cap.release()
