@@ -14,16 +14,16 @@ while(1):
 
     hsv = cv.cvtColor(frame, cv.COLOR_BGR2HSV)
 
-    # two red bands (loosened a bit)
-    lower1, upper1 = (0,  60, 120), (10, 255, 255)
-    lower2, upper2 = (170,60, 120), (179,255, 255)
+    
+    lower1, upper1 = (0,  60, 120), (255, 255, 255)
+    lower2, upper2 = (170,60, 120), (255,255, 255)
 
     mask1 = cv.inRange(hsv, lower1, upper1)
     mask2 = cv.inRange(hsv, lower2, upper2)
 
-    mask = cv.bitwise_or(mask1, mask2)              # OR, not AND
+    mask = cv.bitwise_or(mask1, mask2)
 
-    res  = cv.bitwise_and(frame, frame, mask=mask)  # apply mask to the frame
+    res  = cv.bitwise_and(frame, frame, mask=mask)
 
     cv.imshow('frame',frame)
 

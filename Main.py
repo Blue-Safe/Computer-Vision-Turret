@@ -4,11 +4,13 @@ from ServoTesting import *
 import time
 
 
-
+samples = 5
+nudgeFactor = 5
 
 
 def dataProcess(ret,frame,state=0):        
 
+    # State 0 finds all blobs, and makes the largest the target
 
     if state == 0:
 
@@ -24,30 +26,30 @@ def dataProcess(ret,frame,state=0):
 
         MIN_AREA = 500
 
+    # The second state looks just for the laser. It will detect other objects aswell,
+
     elif state == 1:
-        while True:
-            hsv = cv2.cvtColor(frame,cv2.COLOR_BGR2HSV)
+    
+        hsv = cv2.cvtColor(frame,cv2.COLOR_BGR2HSV)
 
-            lower = np.array([0,255,255])
-            upper = np.array([10,255,255])
+        lower1, upper1 = (0,  60, 120), (179, 255, 255)
+        lower2, upper2 = (170,60, 120), (179,255, 255)
+        WL, WU = (0,0,200), (179,10,255)
 
-            mask = cv2.inRange(hsv, lower, upper)
+        mask1 = cv2.inRange(hsv, lower1, upper1)
+        mask2 = cv2.inRange(hsv, lower2, upper2)
+        mask3 = cv2.inRange(hsv, WL, WU)
 
-            res = cv2.bitwise_and(frame, frame, mask=mask)
+        mask = cv2.bitwise_or(mask1,mask2)
+        mask = cv2.bitwise_or(mask,mask3)
 
-            cv2.imshow('frame',frame)
-            
-            cv2.imshow('mask',mask)
+        res = cv2.bitwise_and(frame, frame, mask=mask)
 
-
-            cv2.imshow('res',res)
+        
 
 
-            k = cv2.waitKey(5) & 0xFF
-
-            if k == 27:
-
-                break
+        contours, _ = cv2.findContours(mask,cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        MIN_AREA = 100
 
     
 
@@ -79,99 +81,48 @@ def dataProcess(ret,frame,state=0):
 
     return (frame,targetCenter)
 
-def simpleCam(cap):
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            print("failed to grab frame")
-            break
-        
-        display,targetCenter = dataProcess(ret,frame)
+def findDirection(laser,target):
+    LX, LY = laser
+    TX, TY = target
 
-        cv2.imshow('Webcam',display)
+    # I'm going to account for 8 possible moves. The turret will be nudged in one of eight 
+    # Cardinal Directions. Rather than 8 if statents, we'll instead return -1,0, or 1 for the
+    # x and y direction. That will be left/down, stay, or right/up.
+    x = 0
+    y = 0
+    if TX > LX:
+        x = -1
+    elif TX < LX:
+        x = 1
+    if TY > LY:
+        y = -1
+    elif TY < LY:
+        y = 1
 
-        key = cv2.waitKey(1) & 0xFF
-        if key == ord('q'):
-            break
+    return x,y
 
-def calibration(cap,x,y): 
-    
-    homex,homey = 0,0
-    setPos(x,y)
-    laser.on()
-    time.sleep(2)
-    averageList = []
-    while True:
-        ret, frame = cap.read() 
-        if not ret: 
-            print("Failed to grab frame")
-            break
-        
-
-        display,targetCenter = dataProcess(ret,frame)
-
-        
-        if len(averageList) < 50:
-            if targetCenter != None:
-                averageList.append(targetCenter)
-                print(targetCenter)
-        else:
-            for i in range(0,len(averageList)):
-                homex += averageList[i][0]
-                homey += averageList[i][1]
-
-            homex = homex/len(averageList)
-            homey = homey/len(averageList)
-
-            return homex,homey
-
-def tracker(cap,home):
-    """
-    The tracker works by a P loop. It alternates between two states, Laser and Target.
-    
-    
-    :param cap: Description
-    :param home: Description
-    """
-
-    
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            print("failed to grab frame")
-            break
-        
-        display,targetCenter = dataProcess(ret,frame)
-
-        
-            
+def average(list):
+    sumX = 0
+    sumY = 0
+    for i in range(samples):
+        sumX += list[i][0]
+        sumY += list[i][1]
+    return sumX/samples, sumY/samples
 
 
-        cv2.imshow('Webcam',display)
-
-        key = cv2.waitKey(1) & 0xFF
-        if key == ord('q'):
-            break
-
-
-def laser(cap):
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            print("failed to grab frame")
-            break
-        
-        display,targetCenter = dataProcess(ret,frame,1)
-
-        cv2.imshow('Webcam',display)
-
-        key = cv2.waitKey(1) & 0xFF
-        if key == ord('q'):
-            break
-
-        
 def main():
-    debug = True
+    
+    servoPos = 90,90
+    laserSamples = []
+    targetSamples = []
+    for i in range(samples):
+        laserSamples.append((0,0))
+        targetSamples.append((0,0))
+    
+    sendData(90,90,1)
+    time.sleep(2)
+
+    
     cap = cv2.VideoCapture(0)
 
     if not cap.isOpened():
@@ -180,8 +131,61 @@ def main():
     
     print("Camera opened")
 
+    state = 1
+    
+    # Start forever loop
+    counter = 0
+    while True:
 
-    laser(cap)
+        # grab the frame
+
+        ret, frame = cap.read()
+        if not ret:
+            print("failed to grab frame")
+            break
+        
+
+        # Pass off frame processing to helper. Returns display with target, and the coordinates for that target.
+        # Switches between laser (0) and target (1) states.
+        display,targetCenter = dataProcess(ret,frame,state)
+
+        
+        if targetCenter != None:
+            
+
+            # Seperates work into which state we are in
+            if state == 1:
+                print("Laser: ",targetCenter)
+                # If we just got data about the laser, we want to store it, then find the direction of the target.
+                laserSamples[counter] = targetCenter
+                laserAvg = average(laserSamples)
+                targetAvg = average(targetSamples)
+                x,y = findDirection(laserAvg,targetAvg)
+
+                # Then we pass off the direction change to the pico to move servos.
+                servoPos = max(0,min(180,(servoPos[0] + (x*nudgeFactor)))),max(0,min(180,servoPos[1] + (y*nudgeFactor)))
+                sendData(servoPos[0],servoPos[1],1)
+
+                # toggle state & increase counter
+                state = 0
+                if counter >= samples-1:
+                    counter=0
+                else:
+                    counter+=1
+            elif state == 0:
+                print("target: ",targetCenter)
+                # When we get target data, we just want to store it.
+                targetSamples[counter] = targetCenter
+
+                # Toggle state
+                state = 1
+
+        cv2.imshow('Webcam',display)
+        time.sleep(1)
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('q'):
+            break
+        
     
 
     cap.release()
