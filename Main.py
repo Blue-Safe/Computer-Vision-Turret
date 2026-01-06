@@ -1,23 +1,37 @@
 import cv2
 import numpy as np
 import time
-from collections import deque
+import math
+from enum import Enum, auto
 from ServoTesting import sendData
 
- 
+
+# Tunable Variables 
 NUDGE_DEG = .5
 DEADBAND_PX = 10
 LASER_AREA  = 5000
 TARGET_AREA = 33600
+LOCKED_PX = math.sqrt(TARGET_AREA/math.pi)
 MAX_ANGLE = 170
 MIN_ANGLE = 10
 MAX_ANGLE_CHANGE = 20
 JUMP_CONSTANT = 75
+LOST_COUNT = 30
 
 
 # Invert if turret tracks in the wrong direction
 INVERT_X = True
 INVERT_Y = False
+
+# Turn on/off debugging tools
+Debug = True
+UI = True
+AllMasks = False
+
+class State(Enum):
+    TRACK = auto()
+    IDLE = auto()
+    LOCKED = auto()
 
 
 
@@ -102,63 +116,10 @@ def sign_step(error, deadband, step_deg):
         return -step_deg
 
 
-def main():
-    servo_x, servo_y = 90, 90
-    sendData(servo_x, servo_y, 1)
-    time.sleep(1.0)
-
-    cap = cv2.VideoCapture(0)
-    if not cap.isOpened():
-        print("Could not open Camera")
-        return
-
-    # Get home position for the laser, becomes default target position to avoid crashes
-
-    ret, frame = cap.read()
-    laser_center,laser_mask, laser_contour = detect_laser(frame)
-    homePos = laser_center
-
-    last_laser  = None
-    last_target = None
-
-    lx,ly = 0,0
-    tx,ty = 0,0
-    stoptWatch = False
-
-    while True:
+def move_servos(target_center,laser_center,servo_x,servo_y,speed):
         
-        ret, frame = cap.read()
-        if not ret:
-            break
-
-        laser_center, laser_mask, laser_contour = detect_laser(frame)
-        target_center, target_mask, target_contour = detect_target(frame, laser_mask=laser_mask)
-        
-        if laser_center == None:
-            laser_center = last_laser
-        else:
-            last_laser = laser_center
-            lx,ly = laser_center
-
-        if target_center == None:
-            target_center = homePos
-        else:
-            if not stoptWatch:
-                t_start = time.perf_counter()
-                stoptWatch = True
-            
-            last_target = target_center
-            tx,ty = target_center
-
-        vis = frame.copy()
-
-        # Draw detections onto the frame for debugging
-        if laser_contour is not None:
-            cv2.drawContours(vis, [laser_contour], -1, (0, 255, 255), 2)
-        if target_contour is not None:
-            cv2.drawContours(vis, [target_contour], -1, (0, 255, 0), 2)
-
-        
+        tx,ty = target_center
+        lx,ly = laser_center
 
         # calculate error from laser to target
         dx = tx - lx
@@ -169,11 +130,6 @@ def main():
         step_y = sign_step(dy, DEADBAND_PX, NUDGE_DEG)
 
         
-
-        if abs(dx) <DEADBAND_PX and abs(dy)<DEADBAND_PX:
-            t_lock = time.perf_counter()
-            print(f"Locked in: {t_lock-t_start}")
-            time.sleep(10000000)
         
         # If Servo moves in the wrong direction flip axis's
         if INVERT_X:
@@ -216,27 +172,149 @@ def main():
         # Send data over to pico
         sendData(servo_x, servo_y, 1)
 
-        # UI for debugging
-        cv2.circle(vis, (lx, ly), 5, (0, 255, 255), -1)
-        cv2.circle(vis, (tx, ty), 5, (0, 255, 0), -1)
-        cv2.line(vis, (lx, ly), (tx, ty), (255, 255, 255), 1)
-        cv2.putText(vis, f"dx={dx} dy={dy}  servo=({servo_x},{servo_y})",(10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2)
+        return servo_x,servo_y
 
-        cv2.imshow("Webcam", vis)
+def main():
 
-        # leftover debugging code. Uncomment to see what the masks actual are
-        # cv2.imshow("laser_mask", laser_mask)
-        # cv2.imshow("target_mask", target_mask)
+    # Initializing code. Starts up required variables and locates laser home position.
+
+    state = State.IDLE
+
+    servo_x, servo_y = 90, 90
+    sendData(servo_x, servo_y, 1)
+    time.sleep(1.0)
+
+    confidence = 0
+
+
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        print("Could not open Camera")
+        return
+
+    # Get home position for the laser
+
+    ret, frame = cap.read()
+    laser_center,laser_mask, laser_contour = detect_laser(frame)
+    homePos = laser_center
+
+    last_laser  = None
+    last_target = None
+
+    lx,ly = 0,0
+    tx,ty = 0,0
+
+    lost_counter = 0
+
+    while True:
+
+        # Read in new frame each loop
+
+        ret, frame = cap.read()
+        if not ret:
+            break
+        
+        # Detect Laser and Target.
+
+        laser_center, laser_mask, laser_contour = detect_laser(frame)
+        target_center, target_mask, target_contour = detect_target(frame, laser_mask=laser_mask)
+        
+        # Store current data 
+
+        if laser_center == None:
+            laser_center = last_laser
+        else:
+            last_laser = laser_center
+            lx,ly = laser_center
+
+        if target_center != None:
+            last_target = target_center
+            tx,ty = target_center
+
+        # calculate error from laser to target
+        dx = tx - lx
+        dy = ty - ly
+
+        if state is State.IDLE:
+            # In the Idle state, we do the following:
+            # Start drifting home (incase it comes back in frame).
+            # Wait for a target to come into frame.
+            # React to target by switching States.
+
+            speed = 1
+
+            target_center = homePos
+
+            servo_x,servo_y = move_servos(target_center,laser_center,servo_x,servo_y,speed)
+
+            if target_contour != None:
+                state = State.TRACK
+                lost_counter = 0
+
+        elif state is State.TRACK:
+            # In the tracking state, we do the following:
+            # Ensure target is still seen
+            # Check if we are locked yet
+            # Move towards target
+
+            if target_contour != None:
+
+                lost_counter = max(0,lost_counter-1)
+
+                speed = 1
+
+                if abs(dx) <LOCKED_PX or abs(dy) <LOCKED_PX:
+                    state = State.LOCKED
+                
+                servo_x,servo_y = move_servos(target_center,laser_center,servo_x,servo_y,speed)
+            else:
+                lost_counter += 1
+                if lost_counter >= LOST_COUNT:
+                    state = State.IDLE
+            
+        elif state is State.LOCKED:
+            # In the Locked state, we do the following:
+            # Ensure we are within locked range 
+            # Move closer to center precisly or don't move at all
+
+            speed = 1
+
+            if abs(dx) < LOCKED_PX and abs(dy) < LOCKED_PX:
+                if abs(dx)< DEADBAND_PX or abs(dy) <DEADBAND_PX:
+                    confidence = 100
+                else:
+                    servo_x,servo_y = move_servos(target_center,laser_center,servo_x,servo_y,speed)
+            else:
+                state = State.TRACK
+        
+        if UI:
+            vis = frame.copy()
+
+            # Draw detections onto the frame for debugging
+            if laser_contour is not None:
+                cv2.drawContours(vis, [laser_contour], -1, (0, 255, 255), 2)
+            if target_contour is not None:
+                cv2.drawContours(vis, [target_contour], -1, (0, 255, 0), 2)
+
+            # UI
+            cv2.circle(vis, (lx, ly), 5, (0, 255, 255), -1)
+            cv2.circle(vis, (tx, ty), 5, (0, 255, 0), -1)
+            cv2.line(vis, (lx, ly), (tx, ty), (255, 255, 255), 1)
+            cv2.putText(vis, f"dx={dx} dy={dy}  servo=({servo_x},{servo_y})    State={state}",(10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,0,0), 2)
+
+            cv2.imshow("Webcam", vis)
+
+
+            if AllMasks:
+                cv2.imshow("laser_mask", laser_mask)
+                cv2.imshow("target_mask", target_mask)
 
         key = cv2.waitKey(1) & 0xFF
         if key == ord('q'):
             break
 
-        
-    print(f"Locked on in: {t_lock - t_start}")
     cap.release()
     cv2.destroyAllWindows()
-
 
 if __name__ == "__main__":
     main()
