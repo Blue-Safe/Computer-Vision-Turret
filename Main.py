@@ -5,14 +5,15 @@ from collections import deque
 from ServoTesting import sendData
 
  
-NUDGE_DEG = 1
-DEADBAND_PX = 20
-MIN_AREA_LASER  = 20
-MIN_AREA_TARGET = 500
+NUDGE_DEG = .5
+DEADBAND_PX = 10
+LASER_AREA  = 5000
+TARGET_AREA = 33600
 MAX_ANGLE = 170
 MIN_ANGLE = 10
 MAX_ANGLE_CHANGE = 20
-JUMP_CONSTANT = 50
+JUMP_CONSTANT = 75
+
 
 # Invert if turret tracks in the wrong direction
 INVERT_X = True
@@ -20,11 +21,11 @@ INVERT_Y = False
 
 
 
-def largest_center_from_mask(mask, min_area):
+def largest_center_from_mask(mask, min_area,max_area):
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     good = []
     for c in contours:
-        if cv2.contourArea(c) >= min_area:
+        if cv2.contourArea(c) >= min_area and cv2.contourArea(c) <= max_area:
             good.append(c)
     
     if not good:
@@ -58,7 +59,7 @@ def detect_laser(frame_bgr):
     mask = cv2.medianBlur(mask, 5)
 
     # Pass off to our helper to get the largest blobs center.
-    center, contour = largest_center_from_mask(mask, MIN_AREA_LASER)
+    center, contour = largest_center_from_mask(mask, LASER_AREA-5000,LASER_AREA+5000)
 
     # Return the center cord, the masked frame incase we want to use it, and the actual object itself. 
     return center, mask, contour
@@ -81,7 +82,7 @@ def detect_target(frame_bgr, laser_mask=None):
 
     # Pass off largest blob detection to helper function.
 
-    center, contour = largest_center_from_mask(thresh, MIN_AREA_TARGET)
+    center, contour = largest_center_from_mask(thresh, TARGET_AREA-1000, TARGET_AREA+1000)
     return center, thresh, contour
 
 # Make sure we are sending valid angles to the pico
@@ -120,14 +121,19 @@ def main():
     last_laser  = None
     last_target = None
 
+    lx,ly = 0,0
+    tx,ty = 0,0
+    stoptWatch = False
+
     while True:
+        
         ret, frame = cap.read()
         if not ret:
             break
 
         laser_center, laser_mask, laser_contour = detect_laser(frame)
         target_center, target_mask, target_contour = detect_target(frame, laser_mask=laser_mask)
-
+        
         if laser_center == None:
             laser_center = last_laser
         else:
@@ -137,6 +143,10 @@ def main():
         if target_center == None:
             target_center = homePos
         else:
+            if not stoptWatch:
+                t_start = time.perf_counter()
+                stoptWatch = True
+            
             last_target = target_center
             tx,ty = target_center
 
@@ -158,6 +168,12 @@ def main():
         step_x = sign_step(dx, DEADBAND_PX, NUDGE_DEG)
         step_y = sign_step(dy, DEADBAND_PX, NUDGE_DEG)
 
+        
+
+        if abs(dx) <DEADBAND_PX and abs(dy)<DEADBAND_PX:
+            t_lock = time.perf_counter()
+            print(f"Locked in: {t_lock-t_start}")
+            time.sleep(10000000)
         
         # If Servo moves in the wrong direction flip axis's
         if INVERT_X:
@@ -186,7 +202,7 @@ def main():
         servo_x = clamp(servo_x + step_x + Xfactor, 0, 180)
         servo_y = clamp(servo_y + step_y + Yfactor, 0, 180)
 
-        print(Xfactor,Yfactor)
+        
 
         # If servo angles exceed the expected view of the camera, put it back in the center.
         if (servo_x >= MAX_ANGLE or servo_x<= MIN_ANGLE):
@@ -217,7 +233,7 @@ def main():
             break
 
         
-
+    print(f"Locked on in: {t_lock - t_start}")
     cap.release()
     cv2.destroyAllWindows()
 
