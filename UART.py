@@ -9,4 +9,4 @@ def send(x,y,laser=0):
     y = max(0, min(180,int(y)))
     ser.write(bytes([0xFF,x,y,laser]))
 
-send(90,40,1)
+send(0,0,1)

@@ -7,16 +7,22 @@ from ServoTesting import sendData
 
 
 # Tunable Variables 
-NUDGE_DEG = .5
-DEADBAND_PX = 10
+NUDGE_DEG = .25
+DEADBAND_PX = 5
 LASER_AREA  = 5000
-TARGET_AREA = 33600
-LOCKED_PX = math.sqrt(TARGET_AREA/math.pi)
+TARGET_AREA = 8000
+LOCKED_PX = TARGET_AREA
 MAX_ANGLE = 170
 MIN_ANGLE = 10
-MAX_ANGLE_CHANGE = 20
+MAX_ANGLE_JUMP = 30
 JUMP_CONSTANT = 75
-LOST_COUNT = 30
+LOST_COUNT = 15
+PTD_CONSTANT = 0
+VEL_CAP = 60
+T_LEAD = .22
+LOCKED_TIME =.2
+CONFIDENCE_THRESHOLD = 80
+
 
 
 # Invert if turret tracks in the wrong direction
@@ -26,12 +32,15 @@ INVERT_Y = False
 # Turn on/off debugging tools
 Debug = True
 UI = True
+frameRate = True
 AllMasks = False
+
 
 class State(Enum):
     TRACK = auto()
     IDLE = auto()
     LOCKED = auto()
+    INIT = auto()
 
 
 
@@ -48,6 +57,7 @@ def largest_center_from_mask(mask, min_area,max_area):
     c = max(good, key=cv2.contourArea)
     x, y, w, h = cv2.boundingRect(c)
     cx, cy = x + w // 2, y + h // 2
+    # print(cv2.contourArea(c))
     return (cx, cy), c
 
 
@@ -83,21 +93,29 @@ def detect_target(frame_bgr, laser_mask=None):
     # The goal of this helper is to find the largest object in the frame while not picking up the laser.
     # Thats why we pass laser_maks through, so we automatically block out where it is from the target mask.
     
-    # Prepare the frame and use thresh anaylsis to detect targets.
-    gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
-    blur = cv2.GaussianBlur(gray, (15, 15), 0)
+    # Convert color range to hsv for color tracking
 
-    thresh = cv2.adaptiveThreshold( blur, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV,31, 5)
+    hsv = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2HSV)
+
+    # Filter for colors within the expected color range of the target.
+
+    BL,BU = (0,0,0),(179,255,50)
+
+
+    mask = cv2.inRange(hsv,BL,BU)
+
+    
 
     # This is where we block out where the laser is in the frame, or atleast where it was when we last located it.
     if laser_mask is not None:
         inv_laser = cv2.bitwise_not(laser_mask)
-        thresh = cv2.bitwise_and(thresh, inv_laser)
+        mask = cv2.bitwise_and(mask, inv_laser)
 
     # Pass off largest blob detection to helper function.
 
-    center, contour = largest_center_from_mask(thresh, TARGET_AREA-1000, TARGET_AREA+1000)
-    return center, thresh, contour
+    center, contour = largest_center_from_mask(mask, TARGET_AREA-7000, TARGET_AREA+7000)
+    
+    return center, mask, contour
 
 # Make sure we are sending valid angles to the pico
 def clamp(val, low, high):
@@ -105,7 +123,7 @@ def clamp(val, low, high):
 
 # To combat parralax and over forms of distorition, rather than trying to move to exactly where the target is,
 # I instead decided to just figure out the direction the target is in and nudge the laser towards it.
-# This helper method returns -1,0,or 1 based on if we will need to add or subtract from the current servo angle.
+# This helper method returns -step_deg,0,or step_deg based on if we will need to add or subtract from the current servo angle.
 
 def sign_step(error, deadband, step_deg):
     if abs(error) <= deadband:
@@ -116,140 +134,213 @@ def sign_step(error, deadband, step_deg):
         return -step_deg
 
 
-def move_servos(target_center,laser_center,servo_x,servo_y,speed):
-        
-        tx,ty = target_center
-        lx,ly = laser_center
+def move_servos(error, servos, gain):
+    dx, dy = error
+    servo_x, servo_y = servos
 
-        # calculate error from laser to target
-        dx = tx - lx
-        dy = ty - ly
+    
+    if abs(dx) <= DEADBAND_PX:
+        X_degree = 0.0
+    else:
+        X_degree = (dx / PTD_CONSTANT) * gain
 
-        # Convert the pixel error to something meaningful to the servos
-        step_x = sign_step(dx, DEADBAND_PX, NUDGE_DEG)
-        step_y = sign_step(dy, DEADBAND_PX, NUDGE_DEG)
+    if abs(dy) <= DEADBAND_PX:
+        Y_degree = 0.0
+    else:
+        Y_degree = (dy / PTD_CONSTANT) * gain
 
-        
-        
-        # If Servo moves in the wrong direction flip axis's
-        if INVERT_X:
-            step_x = -step_x
-        if INVERT_Y:
-            step_y = -step_y
+    # Clamp jump
+    X_degree = clamp(X_degree, -MAX_ANGLE_JUMP, MAX_ANGLE_JUMP)
+    Y_degree = clamp(Y_degree, -MAX_ANGLE_JUMP, MAX_ANGLE_JUMP)
 
-        # Calculate next angle Proportionally
+    servo_x = clamp(servo_x + X_degree, 0, 180)
+    servo_y = clamp(servo_y + Y_degree, 0, 180)
 
-        Xfactor = abs(dx) // JUMP_CONSTANT
-        Yfactor = abs(dy) // JUMP_CONSTANT
+    sendData(servo_x, servo_y, 1)
+    return servo_x, servo_y
 
-        # Clamp to max servo jump
-
-        Xfactor = min(Xfactor,MAX_ANGLE_CHANGE)
-        Yfactor = min(Yfactor,MAX_ANGLE_CHANGE)
-
-        # Need to adjust magnitude without messing with sign
-
-        if step_x != abs(step_x):
-            Xfactor = Xfactor*-1
-        if step_y != abs(step_y):
-            Yfactor = Yfactor *-1
-
-        # Clamp new angle to safe range
-        servo_x = clamp(servo_x + step_x + Xfactor, 0, 180)
-        servo_y = clamp(servo_y + step_y + Yfactor, 0, 180)
-
-        
-
-        # If servo angles exceed the expected view of the camera, put it back in the center.
-        if (servo_x >= MAX_ANGLE or servo_x<= MIN_ANGLE):
-            servo_x = 90
-            servo_y = 90
-        elif (servo_y >= MAX_ANGLE or servo_y<= MIN_ANGLE):
-            servo_x = 90
-            servo_y = 90
-        
-
-        # Send data over to pico
-        sendData(servo_x, servo_y, 1)
-
-        return servo_x,servo_y
 
 def main():
 
     # Initializing code. Starts up required variables and locates laser home position.
 
-    state = State.IDLE
-
-    servo_x, servo_y = 90, 90
-    sendData(servo_x, servo_y, 1)
-    time.sleep(1.0)
-
-    confidence = 0
-
+    global PTD_CONSTANT
+    global MAX_ANGLE_JUMP
+    global homePos
+    global last_target
+    global last_laser
+    lock_in_time = 0
+    last_target = None
+    homePos = 0,0
+    target_center = 0,0
+    tx,ty = target_center
+    state = State.INIT
 
     cap = cv2.VideoCapture(0)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
     if not cap.isOpened():
         print("Could not open Camera")
         return
 
-    # Get home position for the laser
+    lastfps = 0
+    prev_t = time.time()
+    accuracy = 0.0
+    t_lock = 0.0
+    time_confidence = 0.0
+    confidence = 0.0
+    tau = 0.7
 
-    ret, frame = cap.read()
-    laser_center,laser_mask, laser_contour = detect_laser(frame)
-    homePos = laser_center
-
-    last_laser  = None
-    last_target = None
-
-    lx,ly = 0,0
-    tx,ty = 0,0
-
-    lost_counter = 0
 
     while True:
 
-        # Read in new frame each loop
-
-        ret, frame = cap.read()
-        if not ret:
-            break
         
-        # Detect Laser and Target.
-
-        laser_center, laser_mask, laser_contour = detect_laser(frame)
-        target_center, target_mask, target_contour = detect_target(frame, laser_mask=laser_mask)
         
-        # Store current data 
+        now = time.time()
+        dt = now - prev_t
+        prev_t = now
+        dt = max(.01, min(dt, 0.1))
 
-        if laser_center == None:
-            laser_center = last_laser
-        else:
-            last_laser = laser_center
-            lx,ly = laser_center
+        target_center = None
+        target_contour = None
+        target_mask = None
 
-        if target_center != None:
-            last_target = target_center
-            tx,ty = target_center
+        laser_center = None
+        laser_contour = None
+        laser_mask = None
 
-        # calculate error from laser to target
-        dx = tx - lx
-        dy = ty - ly
+        lx,ly = 0,0
 
-        if state is State.IDLE:
+        
+
+        
+
+        
+            
+
+
+        if state is not State.INIT:
+
+            # Read in new frame each loop
+
+            cap.grab()
+            ret, frame = cap.retrieve()
+
+            if not ret:
+                break
+
+            # Detect Laser and Target.
+
+            laser_center, laser_mask, laser_contour = detect_laser(frame)
+            target_center, target_mask, target_contour = detect_target(frame, laser_mask=laser_mask)
+            
+            # Store current data 
+
+            if laser_center == None:
+                laser_center = last_laser
+            else:
+                last_laser = laser_center
+                lx,ly = laser_center
+
+            if target_center != (0,0) and target_center is not None:
+                tx,ty = target_center
+            else:
+                target_center = homePos
+                tx, ty = target_center
+            # calculate error from laser to target
+            dx = tx - lx
+            dy = ty - ly
+
+
+        
+
+
+        if state is State.INIT:
+            # In the setup state, we do the following:
+            # Store Homeposition
+            # Small calibration to determine rough pixel to degree constant
+            # Go to idle State
+            # Get home position for the laser
+
+            servo_x,servo_y = 80,90
+            sendData(servo_x,servo_y,1)
+            time.sleep(1)
+
+            ret, frame = cap.read()
+            laser_center,laser_mask, laser_contour = detect_laser(frame)
+            leftPos = laser_center
+
+            servo_x, servo_y = 90, 90
+            sendData(servo_x, servo_y, 1)
+            time.sleep(1)
+
+            ret, frame = cap.read()
+            laser_center,laser_mask, laser_contour = detect_laser(frame)
+            homePos = laser_center
+
+            
+
+            
+
+            servo_x = 100
+            sendData(servo_x,servo_y,1)
+            time.sleep(1)
+
+            ret, frame = cap.read()
+            laser_center,laser_mask, laser_contour = detect_laser(frame)
+            RightPos = laser_center
+            
+            
+
+            
+
+
+            L_pixel_delta = leftPos[0] - homePos[0]
+            R_pixel_delta = RightPos[0] - homePos[0]
+
+
+            
+            
+
+            PTD_CONSTANT = ((abs(L_pixel_delta) + abs(R_pixel_delta)) / 2) / 10
+
+            print(PTD_CONSTANT)
+
+            servo_x = 90
+            sendData(servo_x,servo_y,1)
+            time.sleep(1)
+
+            
+        
+            state = State.IDLE
+            MAX_ANGLE_JUMP = 3
+            
+        elif state is State.IDLE:
             # In the Idle state, we do the following:
-            # Start drifting home (incase it comes back in frame).
+            # Start drifting home (rather than immediatly incase it comes back in frame).
             # Wait for a target to come into frame.
             # React to target by switching States.
 
-            speed = 1
+            gain = .1
+            lost_counter = 0
 
             target_center = homePos
 
-            servo_x,servo_y = move_servos(target_center,laser_center,servo_x,servo_y,speed)
+            (servo_x,servo_y) = move_servos((dx,dy),(servo_x,servo_y),gain)
 
-            if target_contour != None:
+            if target_contour is not None:
                 state = State.TRACK
                 lost_counter = 0
+                MAX_ANGLE_JUMP = 13
+                last_target = target_center
+                locked = False
+                Lock_start = time.time()
+            if servo_x > MAX_ANGLE or servo_x < MIN_ANGLE or servo_y > MAX_ANGLE or servo_y < MIN_ANGLE:
+                sendData(90,90,1)
+                servo_x, servo_y = 90,90
+                time.sleep(.4)
 
         elif state is State.TRACK:
             # In the tracking state, we do the following:
@@ -257,37 +348,92 @@ def main():
             # Check if we are locked yet
             # Move towards target
 
-            if target_contour != None:
+            if target_contour is not None:
 
                 lost_counter = max(0,lost_counter-1)
 
-                speed = 1
+                gain = .25 
 
-                if abs(dx) <LOCKED_PX or abs(dy) <LOCKED_PX:
-                    state = State.LOCKED
+                # Get targets Velocity
+                if last_target is not None:
+                    vx = (target_center[0] - last_target[0]) / dt
+                    vy = (target_center[1] - last_target[1]) / dt
+                    velocity = (vx, vy)
+                    if abs(velocity[0]) < VEL_CAP:
+                        velocity = (0, velocity[1])
+                    if abs(velocity[1]) < VEL_CAP:
+                        velocity = (velocity[0], 0)
+
+                    ptx = tx + vx * T_LEAD
+                    pty = ty + vy * T_LEAD
+                    
+                    # calculate error from laser to target
+                    dx = ptx - lx 
+                    dy = pty - ly 
+
+                    
+
+                else:
+                    vx,vy = 0,0
+                    velocity = vx,vy
+
+
+                if dx == 0:
+                    dx = .0001
+                if dy == 0:
+                    dy = .0001
                 
-                servo_x,servo_y = move_servos(target_center,laser_center,servo_x,servo_y,speed)
+                err = math.hypot(dx, dy)
+
+                # Accuracy score 0-1
+                accuracy = clamp(1.0 - (err / LOCKED_PX), 0.0, 1.0)
+
+                # Time-on-target score 0-1
+                if err < LOCKED_PX:
+                    t_lock += dt
+                else:
+                    t_lock = 0.0
+
+                if t_lock >= LOCKED_TIME and not locked and confidence >= CONFIDENCE_THRESHOLD:
+                    lock_end = time.time()
+                    locked = True
+                    lock_in_time = lock_end-Lock_start
+                time_confidence = 1.0 - math.exp(-t_lock / tau)
+
+                confidence = 100.0 * accuracy * time_confidence
+                confidence = 0.8*confidence + 0.2*confidence
+
+                if math.hypot(dx,dy) > DEADBAND_PX:
+                    
+                    # If Servo moves in the wrong direction flip axis's
+                    if INVERT_X:
+                        dx = -dx
+                        vx = -vx
+                    if INVERT_Y:
+                        dy = -dy
+                        vy = -vy
+                    (servo_x,servo_y) = move_servos((dx,dy),(servo_x,servo_y),gain)
+                
+
+
             else:
                 lost_counter += 1
                 if lost_counter >= LOST_COUNT:
                     state = State.IDLE
-            
-        elif state is State.LOCKED:
-            # In the Locked state, we do the following:
-            # Ensure we are within locked range 
-            # Move closer to center precisly or don't move at all
+                    accuracy = 0.0
+                    t_lock = 0.0
+                    time_confidence = 0.0
+                    confidence = 0.0
 
-            speed = 1
-
-            if abs(dx) < LOCKED_PX and abs(dy) < LOCKED_PX:
-                if abs(dx)< DEADBAND_PX or abs(dy) <DEADBAND_PX:
-                    confidence = 100
-                else:
-                    servo_x,servo_y = move_servos(target_center,laser_center,servo_x,servo_y,speed)
-            else:
-                state = State.TRACK
+            if servo_x > MAX_ANGLE or servo_x < MIN_ANGLE or servo_y > MAX_ANGLE or servo_y < MIN_ANGLE:
+                print("LIMIT RESET TRIGGERED")
+                sendData(90,90,1)
+                servo_x, servo_y = 90,90
+                time.sleep(.4)
+            accuracy = 1/math.hypot(dx,dy) 
         
         if UI:
+
             vis = frame.copy()
 
             # Draw detections onto the frame for debugging
@@ -300,14 +446,26 @@ def main():
             cv2.circle(vis, (lx, ly), 5, (0, 255, 255), -1)
             cv2.circle(vis, (tx, ty), 5, (0, 255, 0), -1)
             cv2.line(vis, (lx, ly), (tx, ty), (255, 255, 255), 1)
-            cv2.putText(vis, f"dx={dx} dy={dy}  servo=({servo_x},{servo_y})    State={state}",(10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,0,0), 2)
+            cv2.putText(vis, f"servo=({round(servo_x)},{round(servo_y)})    State={state}   "     ,(10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2)
+            cv2.putText(vis, f"FPS={round(lastfps)}    Confidence={round(confidence,2)} Lock in time={round(lock_in_time,2)}"     ,(10, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2)
+            if not ret or vis is None or vis.size == 0:
+                continue
+            else:
+                cv2.imshow("Webcam", vis)
 
-            cv2.imshow("Webcam", vis)
+
+                if AllMasks:
+                    if target_mask is not None and target_mask.size > 0 and laser_mask is not None and laser_mask.size > 0:
+                        cv2.imshow("target_mask", target_mask)
+                        cv2.imshow("laser_mask", laser_mask)
+
+            
+        lastfps = 1.0 / dt
+        last_target = target_center
+        
 
 
-            if AllMasks:
-                cv2.imshow("laser_mask", laser_mask)
-                cv2.imshow("target_mask", target_mask)
+        
 
         key = cv2.waitKey(1) & 0xFF
         if key == ord('q'):
