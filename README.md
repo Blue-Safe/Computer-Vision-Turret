@@ -1,7 +1,10 @@
 # Computer Vision Turret (CVT)
 
 CVT is a real-time computer vision turret designed to track a moving black target from ~5 ft away and maintain alignment within one-fourth of the target’s area.  
-The system combines proportional and predictive control and is split across a Raspberry Pi 5 (vision + logic) and a Raspberry Pi Pico (real-time actuation).
+The system combines proportional and predictive control and is split across a Raspberry Pi 5 (vision and logic) and a Raspberry Pi Pico (serove and laser control).
+
+> This project was designed, built, tested, and documented independently.
+
 
 ## Skills Demonstrated
 
