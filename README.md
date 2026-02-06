@@ -94,7 +94,7 @@ This plot compares tracking error against target velocity over time, highlightin
 ![Error vs Velocity](docs/images/Error_Velocity.png)
 
 ### Lock-In Time Histogram
-Distribution of Lock-In times. Locked In was defined as remaining within one-fourth the area of the target for half a second. CVT averaged a lock in time of .98 seconds, with a standard deviation of .27 seconds. By the Lock-In definition, acquisition time is around .58 seconds.
+Distribution of Lock-In times. Locked In was defined as remaining within one-fourth the area of the target for half a second. CVT averaged a lock in time of .98 seconds, with a standard deviation of .27 seconds. By the Lock-In definition, acquisition time is around .48 seconds.
 
 ![Lock-In Histogram](docs/images/Lock_In_scatter.png)
 
