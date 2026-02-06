@@ -36,7 +36,7 @@ pico_sdk_init()
 # Add executable. Default name is the project name, version 0.1
 
 add_executable(blink
-    UART.c
+    PicoMain.c
     )
 
 # pull in common dependencies

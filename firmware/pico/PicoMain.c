@@ -104,6 +104,9 @@ int main() {
                     }
                     gpio_put(LASER_PIN,laser);
                     break;
+                default: 
+                    state = WAIT;
+                    break;
             }
         }
     }
