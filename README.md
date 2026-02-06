@@ -101,6 +101,6 @@ Distribution of Lock-In times. Locked In was defined as remaining within one-fou
 - Higher target velocities (>125 px/s) increase tracking error
 - Lighting conditions affect thresholding reliability
 
-These constraints were intentionally measured and documented to define realistic system performance bounds. See [this log](data/sample/DYNAMIC_TARGET.csv) for measured performance.
+These constraints were intentionally measured and documented to define realistic system performance bounds. See [this log](data/sample/DYNAMIC_TARGET.csv) for documented framerate.
 
 
