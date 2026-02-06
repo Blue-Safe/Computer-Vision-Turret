@@ -6,7 +6,7 @@ import csv
 from pathlib import Path
 from enum import Enum, auto
 from dataclasses import dataclass
-from ServoTesting import sendData
+from Servo_Control import sendData
 
 # Tunable Variables 
 DEADBAND_PX = 7
