@@ -80,7 +80,7 @@ The system combines proportional and predictive control and is split across a Ra
 2. Threshold and filter to isolate target then laser  
 3. Extract contours and select best candidate based on expected area and color  
 4. Compute target center and pixel error  
-5. Apply control logic (proportional + predictive)  
+5. Apply control logic (proportional and predictive)  
 6. Send servo commands over UART  
 7. Log timestamped data (position, error, velocity, state)
 
@@ -91,12 +91,12 @@ The system combines proportional and predictive control and is split across a Ra
 ### Tracking Error vs Target Velocity
 This plot compares tracking error against target velocity over time, highlighting the velocity range where the system performs reliably and where hardware limits (camera FPS) introduce error. You can see tracking error increase once target velocity exceeds ~125 px/s, which correlates with the system's frame rate and control update limits.
 
-![Error vs Velocity](docs/images/error_velocity.png)
+![Error vs Velocity](docs/images/Error_Velocity.png)
 
 ### Lock-In Time Histogram
 Distribution of Lock-In times. Locked In was defined as remaining within one-fourth the area of the target for half a second. CVT averaged a lock in time of .98 seconds, with a standard deviation of .27 seconds. By the Lock-In definition, acquisition time is around .58 seconds.
 
-![Lock-In Histogram](docs/images/lock_in_scatter.png)
+![Lock-In Histogram](docs/images/Lock_In_scatter.png)
 
 ### Limitations and Constraints
 
